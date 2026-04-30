@@ -1,0 +1,140 @@
+# Little-Car-2026 机器人配置
+# 该文件作为配置源使用，建议后续由脚本生成 C++ 配置代码。
+# STM32 固件运行时不直接解析 YAML。
+
+robot:
+  name: LittleCar2026
+  target: default_car
+
+communication:
+  uart:
+    debug:
+      logical_id: Debug
+      handle: huart1
+      baudrate: 115200
+      tx_mode: dma
+      rx_mode: idle_dma
+      rx_buffer_size: 128
+      rx_callback: Debug_OnUartRx
+
+    vision:
+      logical_id: Vision
+      handle: huart3
+      baudrate: 115200
+      tx_mode: dma
+      rx_mode: idle_dma
+      rx_buffer_size: 128
+      rx_callback: Vision_OnUartRx
+      publish_message: VisionData
+
+    remote:
+      logical_id: Remote
+      handle: huart6
+      baudrate: 100000
+      tx_mode: dma
+      rx_mode: idle_dma
+      rx_buffer_size: 64
+      rx_callback: Remote_OnUartRx
+      publish_message: RemoteData
+
+  can:
+    chassis:
+      handle: hcan1
+      bitrate: 1000000
+      rx_callback: ChassisCan_OnRx
+
+messages:
+  VisionData:
+    publisher: VisionDriver
+    subscribers:
+      - Gimbal_OnVisionData
+      - Chassis_OnVisionData
+
+  RemoteData:
+    publisher: RemoteDriver
+    subscribers:
+      - Chassis_OnRemoteData
+      - Mission_OnRemoteData
+
+  DebugCommand:
+    publisher: DebugDriver
+    subscribers:
+      - Mission_OnDebugCommand
+
+  ChassisState:
+    publisher: ChassisTask
+    subscribers:
+      - Debug_OnChassisState
+      - Mission_OnChassisState
+
+control:
+  pid:
+    chassis_left_speed:
+      kp: 1.2
+      ki: 0.05
+      kd: 0.01
+      output_limit: 8000
+      integral_limit: 1000
+
+    chassis_right_speed:
+      kp: 1.2
+      ki: 0.05
+      kd: 0.01
+      output_limit: 8000
+      integral_limit: 1000
+
+hardware:
+  motors:
+    left:
+      type: dc_motor
+      pwm:
+        timer: htim1
+        channel: TIM_CHANNEL_1
+        frequency_hz: 20000
+      direction_gpio:
+        port: GPIOA
+        pin: GPIO_PIN_1
+      encoder: left_encoder
+      speed_pid: chassis_left_speed
+      reverse: false
+
+    right:
+      type: dc_motor
+      pwm:
+        timer: htim1
+        channel: TIM_CHANNEL_2
+        frequency_hz: 20000
+      direction_gpio:
+        port: GPIOA
+        pin: GPIO_PIN_2
+      encoder: right_encoder
+      speed_pid: chassis_right_speed
+      reverse: true
+
+  encoders:
+    left_encoder:
+      timer: htim2
+      mode: quadrature
+      counts_per_rev: 8192
+      reverse: false
+
+    right_encoder:
+      timer: htim3
+      mode: quadrature
+      counts_per_rev: 8192
+      reverse: true
+
+  sensors:
+    imu:
+      type: imu
+      bus: i2c1
+      address: 0x68
+
+    gray_sensor:
+      type: adc_array
+      adc: hadc1
+      channels:
+        - ADC_CHANNEL_0
+        - ADC_CHANNEL_1
+        - ADC_CHANNEL_2
+        - ADC_CHANNEL_3
