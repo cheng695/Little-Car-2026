@@ -1,0 +1,94 @@
+# Build outputs
+build/
+Build/
+bin/
+obj/
+out/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+
+# STM32CubeIDE / Eclipse generated files
+.metadata/
+.settings/
+.project
+.cproject
+.mxproject
+.launches/
+*.launch
+
+# Keil / MDK generated files
+Listings/
+Objects/
+RTE/
+*.uvguix.*
+*.uvoptx
+*.uvprojx
+*.uvgui.*
+*.uvopt
+*.uvproj
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.o
+*.d
+*.crf
+*.htm
+*.lnp
+*.sct
+*.dep
+
+# IAR generated files
+settings/
+Debug/
+Release/
+*.ewt
+*.ewd
+*.ewp
+*.eww
+*.dep
+*.dni
+*.dbgdt
+*.wsdt
+
+# CMake / Make / Ninja
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+cmake-build-*/
+CMakeUserPresets.json
+.ninja_deps
+.ninja_log
+*.ninja
+
+# Python helper scripts cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# Local generated screenshots / experiments
+pdf_page.png
