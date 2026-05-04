@@ -5,14 +5,29 @@
 
 namespace BSP::BUTTON
 {
+    /**
+     * @brief 按键设备封装。
+     */
     class Button
     {
     public:
+        /**
+         * @brief 构造按键对象。
+         *
+         * @param pin 按键连接的GPIO引脚。
+         * @param activeLow true表示低电平按下，false表示高电平按下。
+         */
         Button(DRV::GPIO::IGpioPin &pin, bool activeLow = true)
             : pin_(pin), active_low_(activeLow)
         {
         }
 
+        /**
+         * @brief 判断按键是否按下。
+         *
+         * @return true 按键已按下。
+         * @return false 按键未按下。
+         */
         bool IsPressed() const
         {
             auto level = pin_.Read();
