@@ -1,0 +1,164 @@
+robot:
+  name: LittleCar2026
+  target: default_car
+  chassis_type: differential_drive
+
+geometry:
+  chassis:
+    wheel_radius_m: 0.022
+    track_width_m: 0.13
+    half_track_m: 0.065
+
+communication:
+  uart:
+    debug:
+      logical_id: Debug
+      handle: huart1
+      baudrate: 115200
+      tx_mode: dma
+      rx_mode: idle_dma
+      rx_buffer_size: 44
+      rx_callback: Debug_OnUartRx
+
+
+messages:
+  RemoteData:
+    publisher: RemoteDriver
+    fields:
+      target_forward: float
+      target_rotation: float
+    subscribers:
+      - Chassis_RemoteData
+
+  MotorFeedback:
+    publisher: MotorDriver
+    fields:
+      left_front_speed_rads: float
+      left_front_angle_rad: float
+      right_front_speed_rads: float
+      right_front_angle_rad: float
+      left_back_speed_rads: float
+      left_back_angle_rad: float
+      right_back_speed_rads: float
+      right_back_angle_rad: float
+    subscribers:
+      - Chassis_MotorFeedback
+
+control:
+  chassis_ik:
+    type: differential_drive
+    config:
+      wheel_radius_m: 0.022
+      half_track_m: 0.065
+
+  pid:
+    chassis_left_front_speed:
+      kp: 1.2
+      ki: 0.05
+      kd: 0.01
+      output_limit: 1000
+      integral_limit: 1000
+      integral_separation_threshold: 100.0
+      R: 50.0
+      T: 0.001
+
+    chassis_right_front_speed:
+      kp: 1.2
+      ki: 0.05
+      kd: 0.01
+      output_limit: 1000
+      integral_limit: 1000
+      integral_separation_threshold: 100.0
+      R: 50.0
+      T: 0.001
+
+    chassis_left_back_speed:
+      kp: 1.2
+      ki: 0.05
+      kd: 0.01
+      output_limit: 1000
+      integral_limit: 1000
+      integral_separation_threshold: 100.0
+      R: 50.0
+      T: 0.001
+
+    chassis_right_back_speed:
+      kp: 1.2
+      ki: 0.05
+      kd: 0.01
+      output_limit: 1000
+      integral_limit: 1000
+      integral_separation_threshold: 100.0
+      R: 50.0
+      T: 0.001
+
+hardware:
+  motors:
+    left_front:
+      interface: M1
+      ik_index: 0
+      side: left
+      position: front
+      reduction_ratio: 20.0
+      pwm_a: { timer: htim1, channel: TIM_CHANNEL_3, gpio: PE13 }
+      pwm_b: { timer: htim1, channel: TIM_CHANNEL_4, gpio: PE14 }
+      encoder: left_front_encoder
+      speed_pid: chassis_left_front_speed
+      reverse: true
+
+    right_front:
+      interface: M3
+      ik_index: 1
+      side: right
+      position: front
+      reduction_ratio: 20.0
+      pwm_a: { timer: htim8, channel: TIM_CHANNEL_1, gpio: PA7, complementary: true }
+      pwm_b: { timer: htim8, channel: TIM_CHANNEL_2, gpio: PB0, complementary: true }
+      encoder: right_front_encoder
+      speed_pid: chassis_right_front_speed
+      reverse: false
+
+    left_back:
+      interface: M2
+      ik_index: 2
+      side: left
+      position: back
+      reduction_ratio: 20.0
+      pwm_a: { timer: htim1, channel: TIM_CHANNEL_1, gpio: PE9 }
+      pwm_b: { timer: htim1, channel: TIM_CHANNEL_2, gpio: PE11 }
+      encoder: left_back_encoder
+      speed_pid: chassis_left_back_speed
+      reverse: true
+
+    right_back:
+      interface: M4
+      ik_index: 3
+      side: right
+      position: back
+      reduction_ratio: 20.0
+      pwm_a: { timer: htim8, channel: TIM_CHANNEL_3, gpio: PC8 }
+      pwm_b: { timer: htim8, channel: TIM_CHANNEL_4, gpio: PC9 }
+      encoder: right_back_encoder
+      speed_pid: chassis_right_back_speed
+      reverse: false
+
+  encoders:
+    left_front_encoder:
+      interface: M1
+      timer: htim3
+      cpr: 1040
+
+    left_back_encoder:
+      interface: M2
+      timer: htim2
+      cpr: 1040
+
+    right_front_encoder:
+      interface: M3
+      timer: htim5
+      cpr: 1040
+
+    right_back_encoder:
+      interface: M4
+      timer: htim4
+      cpr: 1040

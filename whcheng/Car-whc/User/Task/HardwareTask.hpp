@@ -1,0 +1,4 @@
+#ifndef HARDWARETASK_HPP
+#define HARDWARETASK_HPP
+
+#endif // !HARDWARETASK_HPP
