@@ -1,57 +1,56 @@
 #include "ControlTask.hpp"
+#include "robot_messages.hpp"
+#include "robot_runtime.hpp"
 
 using namespace RobotRuntime;
 using namespace RobotMessages;
 
 namespace
 {
-    RobotMessages::RemoteData chassis_target{};
-
-    void OnRemoteData(const RobotMessages::RemoteData &msg)
-    {
-        chassis_target = msg;
-    }
-
-    void InitMessageSubscribe()
-    {
-        RobotMessages::SubscribeRemoteData(OnRemoteData);
-    }
+    RobotMessages::ChassisTarget chassis_target{};
+    RobotMessages::MotorFeedback motor_data{};
+    RobotMessages::ChassisOutput chassis_output{};
 }
 
 void ReadFeedback()
 {
-    ChassisMotors().Update();
+    auto &motors = ChassisMotors();
+    motors.Update();
 
-    RobotMessages::MotorFeedback msg{};
-    msg.left_front_speed_rads = ChassisMotors().GetVelocityRads(1);
-    msg.left_front_angle_rad = ChassisMotors().GetAddAngleRad(1);
-    msg.right_front_speed_rads = ChassisMotors().GetVelocityRads(2);
-    msg.right_front_angle_rad = ChassisMotors().GetAddAngleRad(2);
-    msg.left_back_speed_rads = ChassisMotors().GetVelocityRads(3);
-    msg.left_back_angle_rad = ChassisMotors().GetAddAngleRad(3);
-    msg.right_back_speed_rads = ChassisMotors().GetVelocityRads(4);
-    msg.right_back_angle_rad = ChassisMotors().GetAddAngleRad(4);
+    for (uint8_t i = 0; i < RobotConfig::kMotorCount; ++i)
+    {
+        const uint8_t motor_id = i + 1u;
+        motor_data.motors[i].speed_rads = motors.GetVelocityRads(motor_id);
+        motor_data.motors[i].speed_rpm = motors.GetVelocityRpm(motor_id);
+        motor_data.motors[i].angle_rad = motors.GetAddAngleRad(motor_id);
+        motor_data.motors[i].angle_deg = motors.GetAddAngleDeg(motor_id);
+    }
 
-    PublishMotorFeedback(msg);
+    PublishMotorFeedback(motor_data);
 }
 
 void SetTarget()
 {
-    RemoteData msg{};
-    msg.target_forward = 1.0f;
-    msg.target_rotation = 0.0f;
+    chassis_target.target_forward = 1.0f;
+    chassis_target.target_rotation = 0.0f;
 
-    PublishRemoteData(msg);
+    PublishChassisTarget(chassis_target);
 }
 
 void Control()
 {
-    (void)chassis_target;
+    ChassisIK().DiffInvKinematics(chassis_target.target_forward, chassis_target.target_rotation);
+    for (uint8_t i = 0; i < RobotConfig::kMotorCount; ++i)
+    {
+        ChassisSpeedPids()[i].Update(ChassisIK().GetMotor_wheel(i), motor_data.motors[i].speed_rads);
+        chassis_output.motors[i].out = ChassisSpeedPids()[i].GetOutput();
+    }
+
+    PublishChassisOutput(chassis_output);
 }
 
 extern "C" void ControTask(void const *argument)
 {
-    InitMessageSubscribe();
     ChassisMotors().Start();
 
     for (;;)

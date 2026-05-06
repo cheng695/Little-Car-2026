@@ -3,12 +3,17 @@
 
 namespace ALG::ChassisIK
 {
+    // 底盘逆运动学参数。
+    // wheel_radius: 轮子半径，单位 m。
+    // half_track: 左右轮中心距的一半，单位 m。
     struct ChassisIKConfig
     {
         float wheel_radius = 1.0f;
         float half_track = 1.0f;
     };
 
+    // 底盘逆运动学基类。
+    // 输入为底盘目标速度，输出为 4 个轮子的目标角速度。
     class InverseKinematicsBase
     {
     public:
@@ -20,6 +25,9 @@ namespace ALG::ChassisIK
             Set_w0w1w2w3(0.0f, 0.0f, 0.0f, 0.0f);
         }
 
+        // 设置底盘目标速度。
+        // vx: 车体前进线速度，单位 m/s。
+        // vw: 车体旋转角速度，单位 rad/s。
         virtual void SetSignal_xw(float vx, float vw)
         {
             Signal_x = vx;
@@ -41,6 +49,8 @@ namespace ALG::ChassisIK
             config_ = config;
         }
 
+        // 根据轮子编号读取逆解后的目标轮速，单位 rad/s。
+        // 当前约定: 0 左前，1 右前，2 左后，3 右后。
         float GetMotor_wheel(int index) const
         {
             if (index >= 0 && index < 4)
@@ -58,6 +68,8 @@ namespace ALG::ChassisIK
         ChassisIKConfig GetConfig() const { return config_; }
 
     protected:
+        // 保存 4 个轮子的目标角速度，单位 rad/s。
+        // 参数顺序: 左前、右前、左后、右后。
         void Set_w0w1w2w3(float w0, float w1, float w2, float w3)
         {
             Motor_wheel[0] = w0;

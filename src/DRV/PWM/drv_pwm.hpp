@@ -2,7 +2,7 @@
 #define DRV_PWM_HPP
 
 #include <stdint.h>
-#include "stm32f1xx_hal.h"
+#include "tim.h"
 
 namespace DRV::PWM
 {

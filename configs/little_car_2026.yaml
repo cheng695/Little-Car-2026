@@ -24,13 +24,42 @@ communication:
 messages:
   RemoteData:
     publisher: RemoteDriver
+    fields:
+      target_forward: float
+      target_rotation: float
     subscribers:
       - Chassis_RemoteData
 
   MotorFeedback:
     publisher: MotorDriver
+    fields:
+      motors:
+        count: 4
+        fields:
+          speed_rads: float
+          speed_rpm: float
+          angle_rad: float
+          angle_deg: float
     subscribers:
       - Chassis_MotorFeedback
+    
+  ChassisTarget:
+    publisher: TargetDriver
+    fields:
+      target_forward: float
+      target_rotation: float
+    subscribers:
+      - Chassis_Motortarget
+
+  ChassisOutput:
+    publisher: OutputDriver
+    fields:
+      motors:
+        count: 4
+        fields:
+          out: float
+    subscribers:
+      - Chassis_MotorOutPut
 
 control:
   chassis_ik:
@@ -41,6 +70,9 @@ control:
 
   pid:
     chassis_left_front_speed:
+      array: true
+      array_name: chassis_speed
+      array_index: 0
       kp: 1.2
       ki: 0.05
       kd: 0.01
@@ -51,6 +83,9 @@ control:
       T: 0.001
 
     chassis_right_front_speed:
+      array: true
+      array_name: chassis_speed
+      array_index: 1
       kp: 1.2
       ki: 0.05
       kd: 0.01
@@ -61,6 +96,9 @@ control:
       T: 0.001
 
     chassis_left_back_speed:
+      array: true
+      array_name: chassis_speed
+      array_index: 2
       kp: 1.2
       ki: 0.05
       kd: 0.01
@@ -71,6 +109,9 @@ control:
       T: 0.001
 
     chassis_right_back_speed:
+      array: true
+      array_name: chassis_speed
+      array_index: 3
       kp: 1.2
       ki: 0.05
       kd: 0.01
@@ -83,10 +124,14 @@ control:
 hardware:
   motors:
     left_front:
+      array: true
+      array_name: chassis
+      array_index: 0
       interface: M1
       ik_index: 0
       side: left
       position: front
+      reduction_ratio: 20.0
       pwm_a: { timer: htim1, channel: TIM_CHANNEL_3, gpio: PE13 }
       pwm_b: { timer: htim1, channel: TIM_CHANNEL_4, gpio: PE14 }
       encoder: left_front_encoder
@@ -94,10 +139,14 @@ hardware:
       reverse: true
 
     right_front:
+      array: true
+      array_name: chassis
+      array_index: 1
       interface: M3
       ik_index: 1
       side: right
       position: front
+      reduction_ratio: 20.0
       pwm_a: { timer: htim8, channel: TIM_CHANNEL_1, gpio: PA7, complementary: true }
       pwm_b: { timer: htim8, channel: TIM_CHANNEL_2, gpio: PB0, complementary: true }
       encoder: right_front_encoder
@@ -105,10 +154,14 @@ hardware:
       reverse: false
 
     left_back:
+      array: true
+      array_name: chassis
+      array_index: 2
       interface: M2
       ik_index: 2
       side: left
       position: back
+      reduction_ratio: 20.0
       pwm_a: { timer: htim1, channel: TIM_CHANNEL_1, gpio: PE9 }
       pwm_b: { timer: htim1, channel: TIM_CHANNEL_2, gpio: PE11 }
       encoder: left_back_encoder
@@ -116,10 +169,14 @@ hardware:
       reverse: true
 
     right_back:
+      array: true
+      array_name: chassis
+      array_index: 3
       interface: M4
       ik_index: 3
       side: right
       position: back
+      reduction_ratio: 20.0
       pwm_a: { timer: htim8, channel: TIM_CHANNEL_3, gpio: PC8 }
       pwm_b: { timer: htim8, channel: TIM_CHANNEL_4, gpio: PC9 }
       encoder: right_back_encoder
@@ -128,25 +185,33 @@ hardware:
 
   encoders:
     left_front_encoder:
+      array: true
+      array_name: chassis
+      array_index: 0
       interface: M1
       timer: htim3
-      channel_a: { gpio: PB4, channel: TIM_CHANNEL_1 }
-      channel_b: { gpio: PB5, channel: TIM_CHANNEL_2 }
+      cpr: 1040
 
     left_back_encoder:
+      array: true
+      array_name: chassis
+      array_index: 2
       interface: M2
       timer: htim2
-      channel_a: { gpio: PA15, channel: TIM_CHANNEL_1 }
-      channel_b: { gpio: PB3, channel: TIM_CHANNEL_2 }
+      cpr: 1040
 
     right_front_encoder:
+      array: true
+      array_name: chassis
+      array_index: 1
       interface: M3
       timer: htim5
-      channel_a: { gpio: PA0, channel: TIM_CHANNEL_1 }
-      channel_b: { gpio: PA1, channel: TIM_CHANNEL_2 }
+      cpr: 1040
 
     right_back_encoder:
+      array: true
+      array_name: chassis
+      array_index: 3
       interface: M4
       timer: htim4
-      channel_a: { gpio: PD12, channel: TIM_CHANNEL_1 }
-      channel_b: { gpio: PD13, channel: TIM_CHANNEL_2 }
+      cpr: 1040

@@ -205,6 +205,48 @@ def cpp_bool(value) -> str:
     return "true" if bool(value) else "false"
 
 
+def as_bool(value) -> bool:
+    if not isinstance(value, bool):
+        raise ConfigError(f"Expected bool, got {value!r}")
+    return value
+
+
+def grouped_array_enabled(flags: list[bool], path: str) -> bool:
+    if any(flags) and not all(flags):
+        raise ConfigError(f"{path}.array must be true for every item in the group or omitted for every item")
+    return all(flags)
+
+
+def collect_array_groups(items: dict, path: str) -> dict:
+    groups: dict[str, list[tuple[int, str]]] = {}
+    for name, item in items.items():
+        if not bool(item.get("array", False)):
+            continue
+
+        array_name = require(item, "array_name", f"{path}.{name}")
+        if not isinstance(array_name, str):
+            raise ConfigError(f"{path}.{name}.array_name must be a string")
+        to_identifier(array_name)
+
+        array_index = as_int(require(item, "array_index", f"{path}.{name}"))
+        if array_index < 0:
+            raise ConfigError(f"{path}.{name}.array_index must be non-negative")
+
+        groups.setdefault(array_name, []).append((array_index, name))
+
+    for array_name, items in groups.items():
+        indexes = [index for index, _ in items]
+        if len(indexes) != len(set(indexes)):
+            raise ConfigError(f"{path} array group {array_name} has duplicated array_index")
+        expected = set(range(len(indexes)))
+        if set(indexes) != expected:
+            raise ConfigError(
+                f"{path} array group {array_name} must use continuous array_index 0..{len(indexes) - 1}"
+            )
+
+    return groups
+
+
 def to_identifier(name: str) -> str:
     parts = re.split(r"[^0-9A-Za-z]+", name)
     text = "".join(part[:1].upper() + part[1:] for part in parts if part)
@@ -229,6 +271,36 @@ def cpp_message_type(value) -> str:
     if text not in SUPPORTED_MESSAGE_TYPES:
         raise ConfigError(f"Unsupported message field type: {text}")
     return text
+
+
+def validate_message_fields(fields: dict, path: str) -> None:
+    for field_name, field_value in fields.items():
+        to_field_identifier(field_name)
+        if isinstance(field_value, dict):
+            count = as_int(require(field_value, "count", f"{path}.{field_name}"))
+            if count <= 0:
+                raise ConfigError(f"{path}.{field_name}.count must be positive")
+            nested = require(field_value, "fields", f"{path}.{field_name}")
+            if not isinstance(nested, dict) or not nested:
+                raise ConfigError(f"{path}.{field_name}.fields must be a non-empty map")
+            validate_message_fields(nested, f"{path}.{field_name}.fields")
+        else:
+            cpp_message_type(field_value)
+
+
+def generate_message_field_lines(lines: list[str], fields: dict, indent: str) -> None:
+    for field_name, field_value in fields.items():
+        field_ident = to_field_identifier(field_name)
+        if isinstance(field_value, dict):
+            item_ident = f"{to_identifier(field_name)}Item"
+            count = as_int(field_value["count"])
+            lines.append(f"{indent}struct {item_ident}")
+            lines.append(f"{indent}{{")
+            generate_message_field_lines(lines, field_value["fields"], indent + "    ")
+            lines.append(f"{indent}}};")
+            lines.append(f"{indent}{item_ident} {field_ident}[{count}] = {{}};")
+        else:
+            lines.append(f"{indent}{cpp_message_type(field_value)} {field_ident} = {{}};")
 
 
 def cpp_symbol(value) -> str:
@@ -278,6 +350,10 @@ def validate_config(config: dict) -> None:
             raise ConfigError(f"Motor {name} references missing encoder {encoder_name}")
 
         require(motor, "reduction_ratio", f"hardware.motors.{name}")
+        if "array" in motor:
+            as_bool(motor["array"])
+            require(motor, "array_name", f"hardware.motors.{name}")
+            require(motor, "array_index", f"hardware.motors.{name}")
 
     if seen_indexes != {0, 1, 2, 3}:
         raise ConfigError("Motors must define ik_index 0, 1, 2, and 3")
@@ -285,19 +361,29 @@ def validate_config(config: dict) -> None:
     for name, pid in pid_map.items():
         for field in ("kp", "ki", "kd", "output_limit", "integral_limit", "T"):
             require(pid, field, f"control.pid.{name}")
+        if "array" in pid:
+            as_bool(pid["array"])
+            require(pid, "array_name", f"control.pid.{name}")
+            require(pid, "array_index", f"control.pid.{name}")
 
     for name, encoder in encoders.items():
         cpr = as_int(require(encoder, "cpr", f"hardware.encoders.{name}"))
         if cpr <= 0:
             raise ConfigError(f"hardware.encoders.{name}.cpr must be positive")
+        if "array" in encoder:
+            as_bool(encoder["array"])
+            require(encoder, "array_name", f"hardware.encoders.{name}")
+            require(encoder, "array_index", f"hardware.encoders.{name}")
+
+    collect_array_groups(pid_map, "control.pid")
+    collect_array_groups(motors, "hardware.motors")
+    collect_array_groups(encoders, "hardware.encoders")
 
     for name, message in messages.items():
         fields = require(message, "fields", f"messages.{name}")
         if not isinstance(fields, dict) or not fields:
             raise ConfigError(f"messages.{name}.fields must be a non-empty map")
-        for field_name, field_type in fields.items():
-            to_field_identifier(field_name)
-            cpp_message_type(field_type)
+        validate_message_fields(fields, f"messages.{name}.fields")
 
         subscribers = message.get("subscribers", [])
         if not isinstance(subscribers, list):
@@ -504,10 +590,7 @@ def generate_messages_header(config: dict, source_path: Path) -> str:
 
         lines.append(f"    struct {ident}")
         lines.append("    {")
-        for field_name, field_type in fields.items():
-            lines.append(
-                f"        {cpp_message_type(field_type)} {to_field_identifier(field_name)} = {{}};"
-            )
+        generate_message_field_lines(lines, fields, "        ")
         lines.append("    };")
         lines.append("")
 
@@ -537,12 +620,31 @@ def generate_messages_header(config: dict, source_path: Path) -> str:
 
 def generate_runtime_header(config: dict, source_path: Path) -> str:
     pid_map = config["control"]["pid"]
+    chassis_ik = config["control"]["chassis_ik"]
     motors = config["hardware"]["motors"]
     encoders = config["hardware"]["encoders"]
     motors_by_index = sorted(motors.items(), key=lambda item: item[1]["ik_index"])
-    motor_for_encoder = {
-        motor["encoder"]: (name, motor)
-        for name, motor in motors.items()
+    pid_array_groups = collect_array_groups(pid_map, "control.pid")
+    motor_array_groups = collect_array_groups(motors, "hardware.motors")
+    encoder_array_groups = collect_array_groups(encoders, "hardware.encoders")
+    pid_names_in_arrays = {
+        name
+        for items in pid_array_groups.values()
+        for _, name in items
+    }
+    if len(motor_array_groups) > 1:
+        raise ConfigError("Only one hardware.motors array group is supported by Motor310 runtime generation")
+    if len(encoder_array_groups) > 1:
+        raise ConfigError("Only one hardware.encoders array group is supported by Motor310 runtime generation")
+    motor_array_name = next(iter(motor_array_groups), None)
+    encoder_array_name = next(iter(encoder_array_groups), None)
+    chassis_motor_array_enabled = motor_array_name is not None
+    chassis_encoder_array_enabled = encoder_array_name is not None
+    motor_array_ident = to_identifier(motor_array_name) if motor_array_name else "Chassis"
+    encoder_array_ident = to_identifier(encoder_array_name) if encoder_array_name else "Chassis"
+    encoder_indexes = {
+        name: index
+        for index, name in enumerate(encoders.keys())
     }
 
     lines = []
@@ -552,6 +654,7 @@ def generate_runtime_header(config: dict, source_path: Path) -> str:
     lines.append("#define ROBOT_RUNTIME_HPP")
     lines.append("")
     lines.append('#include "pid.hpp"')
+    lines.append('#include "DifferentialDrive.hpp"')
     lines.append('#include "tim.h"')
     lines.append('#include "drv_pwm.hpp"')
     lines.append('#include "encoder.hpp"')
@@ -561,7 +664,26 @@ def generate_runtime_header(config: dict, source_path: Path) -> str:
     lines.append("namespace RobotRuntime")
     lines.append("{")
 
+    for array_name, items in pid_array_groups.items():
+        array_ident = to_identifier(array_name)
+        sorted_items = sorted(items, key=lambda item: item[0])
+        lines.append(f"    inline ALG::PID::PID (&{array_ident}Pids())[{len(sorted_items)}]")
+        lines.append("    {")
+        lines.append(f"        static ALG::PID::PID pids[{len(sorted_items)}] =")
+        lines.append("        {")
+        for _, pid_name in sorted_items:
+            pid_ident = to_identifier(pid_name)
+            lines.append(f"            ALG::PID::PID(RobotConfig::kPid{pid_ident}),")
+        lines.append("        };")
+        lines.append("")
+        lines.append("        return pids;")
+        lines.append("    }")
+        lines.append("")
+
     for name in pid_map.keys():
+        if name in pid_names_in_arrays:
+            continue
+
         ident = to_identifier(name)
         lines.append(f"    inline ALG::PID::PID &{ident}Pid()")
         lines.append("    {")
@@ -572,55 +694,140 @@ def generate_runtime_header(config: dict, source_path: Path) -> str:
         lines.append("    }")
         lines.append("")
 
-    for name, encoder in encoders.items():
-        ident = to_identifier(name)
-        if name not in motor_for_encoder:
-            raise ConfigError(f"Encoder {name} is not referenced by any motor")
-        _, motor = motor_for_encoder[name]
-        pid_ident = to_identifier(motor["speed_pid"])
-
-        lines.append(f"    inline BSP::ENCODER::HALEncoder &{ident}Hal()")
+    if chassis_ik["type"] == "differential_drive":
+        lines.append("    inline ALG::ChassisIK::Diff_IK &ChassisIK()")
         lines.append("    {")
         lines.append(
-            f"        static BSP::ENCODER::HALEncoder encoder(&{cpp_symbol(encoder['timer'])});"
+            "        static ALG::ChassisIK::Diff_IK ik(RobotConfig::kChassisIKConfig);"
         )
-        lines.append("        return encoder;")
+        lines.append("        return ik;")
         lines.append("    }")
         lines.append("")
-        lines.append(f"    inline BSP::ENCODER::EncoderData &{ident}Data()")
+
+    if chassis_encoder_array_enabled:
+        sorted_encoder_items = sorted(encoder_array_groups[encoder_array_name], key=lambda item: item[0])
+        lines.append(f"    inline BSP::ENCODER::HALEncoder (&{encoder_array_ident}EncoderHal())[{len(sorted_encoder_items)}]")
         lines.append("    {")
-        lines.append(
-            f"        static BSP::ENCODER::EncoderData data({ident}Hal(), "
-            f"RobotConfig::kEncoders[{list(encoders.keys()).index(name)}].cpr, "
-            f"RobotConfig::kPid{pid_ident}.T);"
-        )
+        lines.append(f"        static BSP::ENCODER::HALEncoder encoders[{len(sorted_encoder_items)}] =")
+        lines.append("        {")
+        for _, encoder_name in sorted_encoder_items:
+            encoder = encoders[encoder_name]
+            lines.append(f"            BSP::ENCODER::HALEncoder(&{cpp_symbol(encoder['timer'])}),")
+        lines.append("        };")
+        lines.append("")
+        lines.append("        return encoders;")
+        lines.append("    }")
+        lines.append("")
+
+        lines.append(f"    inline BSP::ENCODER::EncoderData (&{encoder_array_ident}EncoderData())[{len(sorted_encoder_items)}]")
+        lines.append("    {")
+        lines.append(f"        static BSP::ENCODER::EncoderData data[{len(sorted_encoder_items)}] =")
+        lines.append("        {")
+        motor_for_encoder = {motor["encoder"]: motor for _, motor in motors_by_index}
+        for array_index, encoder_name in sorted_encoder_items:
+            motor = motor_for_encoder[encoder_name]
+            encoder_index = encoder_indexes[encoder_name]
+            pid_ident = to_identifier(motor["speed_pid"])
+            lines.append("            BSP::ENCODER::EncoderData(")
+            lines.append(f"                {encoder_array_ident}EncoderHal()[{array_index}],")
+            lines.append(f"                RobotConfig::kEncoders[{encoder_index}].cpr,")
+            lines.append(f"                RobotConfig::kPid{pid_ident}.T")
+            lines.append("            ),")
+        lines.append("        };")
+        lines.append("")
         lines.append("        return data;")
         lines.append("    }")
         lines.append("")
+    else:
+        for _, motor in motors_by_index:
+            encoder_name = motor["encoder"]
+            encoder = encoders[encoder_name]
+            encoder_ident = to_identifier(encoder_name)
+            encoder_index = encoder_indexes[encoder_name]
+            pid_ident = to_identifier(motor["speed_pid"])
 
-    for index, (name, motor) in enumerate(motors_by_index):
-        ident = to_identifier(name)
-        pwm_a = motor["pwm_a"]
-        pwm_b = motor["pwm_b"]
+            lines.append(f"    inline BSP::ENCODER::HALEncoder &{encoder_ident}Hal()")
+            lines.append("    {")
+            lines.append(
+                f"        static BSP::ENCODER::HALEncoder encoder(&{cpp_symbol(encoder['timer'])});"
+            )
+            lines.append("        return encoder;")
+            lines.append("    }")
+            lines.append("")
+            lines.append(f"    inline BSP::ENCODER::EncoderData &{encoder_ident}Data()")
+            lines.append("    {")
+            lines.append(
+                f"        static BSP::ENCODER::EncoderData data({encoder_ident}Hal(), "
+                f"RobotConfig::kEncoders[{encoder_index}].cpr, "
+                f"RobotConfig::kPid{pid_ident}.T);"
+            )
+            lines.append("        return data;")
+            lines.append("    }")
+            lines.append("")
 
-        lines.append(f"    inline DRV::PWM::HalPwmChannel &{ident}PwmA()")
+    if chassis_motor_array_enabled:
+        sorted_motor_items = sorted(motor_array_groups[motor_array_name], key=lambda item: item[0])
+        lines.append(f"    inline DRV::PWM::HalPwmChannel (&{motor_array_ident}PwmA())[{len(sorted_motor_items)}]")
         lines.append("    {")
-        lines.append(
-            f"        static DRV::PWM::HalPwmChannel pwm(&{cpp_symbol(pwm_a['timer'])}, "
-            f"{cpp_symbol(pwm_a['channel'])});"
-        )
-        lines.append("        return pwm;")
+        lines.append(f"        static DRV::PWM::HalPwmChannel pwms[{len(sorted_motor_items)}] =")
+        lines.append("        {")
+        for _, motor_name in sorted_motor_items:
+            motor = motors[motor_name]
+            pwm_a = motor["pwm_a"]
+            lines.append(
+                f"            DRV::PWM::HalPwmChannel(&{cpp_symbol(pwm_a['timer'])}, "
+                f"{cpp_symbol(pwm_a['channel'])}),"
+            )
+        lines.append("        };")
+        lines.append("")
+        lines.append("        return pwms;")
         lines.append("    }")
         lines.append("")
-        lines.append(f"    inline DRV::PWM::HalPwmChannel &{ident}PwmB()")
+
+        lines.append(f"    inline DRV::PWM::HalPwmChannel (&{motor_array_ident}PwmB())[{len(sorted_motor_items)}]")
         lines.append("    {")
-        lines.append(
-            f"        static DRV::PWM::HalPwmChannel pwm(&{cpp_symbol(pwm_b['timer'])}, "
-            f"{cpp_symbol(pwm_b['channel'])});"
-        )
-        lines.append("        return pwm;")
+        lines.append(f"        static DRV::PWM::HalPwmChannel pwms[{len(sorted_motor_items)}] =")
+        lines.append("        {")
+        for _, motor_name in sorted_motor_items:
+            motor = motors[motor_name]
+            pwm_b = motor["pwm_b"]
+            lines.append(
+                f"            DRV::PWM::HalPwmChannel(&{cpp_symbol(pwm_b['timer'])}, "
+                f"{cpp_symbol(pwm_b['channel'])}),"
+            )
+        lines.append("        };")
+        lines.append("")
+        lines.append("        return pwms;")
         lines.append("    }")
         lines.append("")
+    else:
+        for name, motor in motors_by_index:
+            ident = to_identifier(name)
+            pwm_a = motor["pwm_a"]
+            pwm_b = motor["pwm_b"]
+
+            lines.append(f"    inline DRV::PWM::HalPwmChannel &{ident}PwmA()")
+            lines.append("    {")
+            lines.append(
+                "        static DRV::PWM::HalPwmChannel pwm("
+                f"&{cpp_symbol(pwm_a['timer'])}, "
+                f"{cpp_symbol(pwm_a['channel'])}"
+                ");"
+            )
+            lines.append("        return pwm;")
+            lines.append("    }")
+            lines.append("")
+            lines.append(f"    inline DRV::PWM::HalPwmChannel &{ident}PwmB()")
+            lines.append("    {")
+            lines.append(
+                "        static DRV::PWM::HalPwmChannel pwm("
+                f"&{cpp_symbol(pwm_b['timer'])}, "
+                f"{cpp_symbol(pwm_b['channel'])}"
+                ");"
+            )
+            lines.append("        return pwm;")
+            lines.append("    }")
+            lines.append("")
 
     motor_id_names = [
         "LeftForward",
@@ -635,15 +842,35 @@ def generate_runtime_header(config: dict, source_path: Path) -> str:
     for index, (name, motor) in enumerate(motors_by_index):
         ident = to_identifier(name)
         encoder_ident = to_identifier(motor["encoder"])
-        lines.append(
-            "            {"
-            f"BSP::Motor::_310::MotorId::{motor_id_names[index]}, "
-            f"&{ident}PwmA(), "
-            f"&{ident}PwmB(), "
-            f"&{encoder_ident}Data(), "
-            f"BSP::Motor::_310::Parameters(RobotConfig::kMotors[{index}].reduction_ratio)"
-            "},"
+        motor_array_index = as_int(motor.get("array_index", index))
+        encoder_array_index = as_int(encoders[motor["encoder"]].get("array_index", index))
+        pwm_a_expr = (
+            f"&{motor_array_ident}PwmA()[{motor_array_index}]"
+            if chassis_motor_array_enabled
+            else f"&{ident}PwmA()"
         )
+        pwm_b_expr = (
+            f"&{motor_array_ident}PwmB()[{motor_array_index}]"
+            if chassis_motor_array_enabled
+            else f"&{ident}PwmB()"
+        )
+        encoder_expr = (
+            f"&{encoder_array_ident}EncoderData()[{encoder_array_index}]"
+            if chassis_encoder_array_enabled
+            else f"&{encoder_ident}Data()"
+        )
+
+        lines.append("            {")
+        lines.append(f"                BSP::Motor::_310::MotorId::{motor_id_names[index]},")
+        lines.append(f"                {pwm_a_expr},")
+        lines.append(f"                {pwm_b_expr},")
+        lines.append(f"                {encoder_expr},")
+        lines.append(
+            "                BSP::Motor::_310::Parameters("
+            f"RobotConfig::kMotors[{index}].reduction_ratio"
+            ")"
+        )
+        lines.append("            },")
     lines.append("        };")
     lines.append("")
     lines.append("        return configs;")
@@ -666,10 +893,16 @@ def generate_runtime_header(config: dict, source_path: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate C++ config from YAML.")
     parser.add_argument("-i", "--input", type=Path, default=DEFAULT_INPUT)
-    parser.add_argument("-o", "--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--messages-output", type=Path, default=DEFAULT_MESSAGES_OUTPUT)
-    parser.add_argument("--runtime-output", type=Path, default=DEFAULT_RUNTIME_OUTPUT)
+    parser.add_argument("-o", "--output", type=Path)
+    parser.add_argument("--messages-output", type=Path)
+    parser.add_argument("--runtime-output", type=Path)
     args = parser.parse_args()
+
+    output_root = args.input.resolve().parent.parent
+    output_dir = output_root / "src" / "Tools" / "generated"
+    output = args.output or output_dir / "robot_config.hpp"
+    messages_output = args.messages_output or output_dir / "robot_messages.hpp"
+    runtime_output = args.runtime_output or output_dir / "robot_runtime.hpp"
 
     config = load_yaml_subset(args.input)
     validate_config(config)
@@ -677,15 +910,15 @@ def main() -> int:
     messages_header = generate_messages_header(config, args.input)
     runtime_header = generate_runtime_header(config, args.input)
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(header, encoding="utf-8", newline="\n")
-    args.messages_output.parent.mkdir(parents=True, exist_ok=True)
-    args.messages_output.write_text(messages_header, encoding="utf-8", newline="\n")
-    args.runtime_output.parent.mkdir(parents=True, exist_ok=True)
-    args.runtime_output.write_text(runtime_header, encoding="utf-8", newline="\n")
-    print(f"generated: {args.output}")
-    print(f"generated: {args.messages_output}")
-    print(f"generated: {args.runtime_output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(header, encoding="utf-8", newline="\n")
+    messages_output.parent.mkdir(parents=True, exist_ok=True)
+    messages_output.write_text(messages_header, encoding="utf-8", newline="\n")
+    runtime_output.parent.mkdir(parents=True, exist_ok=True)
+    runtime_output.write_text(runtime_header, encoding="utf-8", newline="\n")
+    print(f"generated: {output}")
+    print(f"generated: {messages_output}")
+    print(f"generated: {runtime_output}")
     return 0
 
 

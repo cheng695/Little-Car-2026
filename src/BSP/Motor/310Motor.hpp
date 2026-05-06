@@ -7,8 +7,7 @@
 
 #include "MotorBase.hpp"
 #include "encoder.hpp"
-#include "drv_gpio.hpp"
-#include "drv_pwm.hpp"
+
 
 namespace BSP::Motor::_310
 {
@@ -55,11 +54,10 @@ namespace BSP::Motor::_310
         MotorId id;
 
         /** PWM输出通道。 */
-        DRV::PWM::IPwm *pwm;
+        DRV::PWM::IPwm *pwm_a;
         /** 方向控制引脚1。 */
-        DRV::GPIO::IGpioPin *dir1;
+        DRV::PWM::IPwm *pwm_b;
         /** 方向控制引脚2。 */
-        DRV::GPIO::IGpioPin *dir2;
         /** 电机编码器测量对象。 */
         BSP::ENCODER::EncoderData *encoder;
 
@@ -183,15 +181,15 @@ namespace BSP::Motor::_310
             const MotorConfig &config = configs_[index];
             auto &data = this->unit_data_[index];
 
-            if (config.pwm == nullptr || config.encoder == nullptr)
+            if (config.pwm_a == nullptr || config.pwm_b == nullptr)
             {
                 data.enabled = false;
                 data.status = MotorStatus::EncoderFault;
                 return false;
             }
 
-            const bool encoder_ok = config.encoder->Start();
-            const bool pwm_ok = config.pwm->Start();
+            const bool encoder_ok = config.encoder == nullptr ? true : config.encoder->Start();
+            const bool pwm_ok = config.pwm_a->Start() && config.pwm_b->Start();
 
             data.enabled = encoder_ok && pwm_ok;
             data.status = data.enabled ? MotorStatus::Stopped : MotorStatus::EncoderFault;
@@ -214,9 +212,14 @@ namespace BSP::Motor::_310
             bool ok = true;
             SetDutyByIndex(index, 0);
 
-            if (config.pwm != nullptr)
+            if (config.pwm_a != nullptr)
             {
-                ok = config.pwm->Stop() && ok;
+                ok = config.pwm_a->Stop() && ok;
+            }
+
+            if (config.pwm_b != nullptr)
+            {
+                ok = config.pwm_b->Stop() && ok;
             }
 
             if (config.encoder != nullptr)
@@ -238,16 +241,12 @@ namespace BSP::Motor::_310
         void UpdateMotor(uint8_t index)
         {
             const MotorConfig &config = configs_[index];
-            auto &data = this->unit_data_[index];
 
-            if (config.encoder == nullptr)
+            if (config.encoder != nullptr)
             {
-                data.status = MotorStatus::EncoderFault;
-                return;
+                config.encoder->Update();
+                Configure(index);
             }
-
-            config.encoder->Update();
-            Configure(index);
             UpdateStatus(index);
         }
 
@@ -264,7 +263,7 @@ namespace BSP::Motor::_310
             const MotorConfig &config = configs_[index];
             auto &data = this->unit_data_[index];
 
-            if (config.pwm == nullptr || config.dir1 == nullptr || config.dir2 == nullptr)
+            if (config.pwm_a == nullptr || config.pwm_b == nullptr)
             {
                 return false;
             }
@@ -273,21 +272,18 @@ namespace BSP::Motor::_310
 
             if (duty > 0)
             {
-                config.dir1->SetHigh();
-                config.dir2->SetLow();
-                config.pwm->SetDuty(static_cast<uint16_t>(duty));
+                config.pwm_a->SetDuty(static_cast<uint16_t>(duty));
+                config.pwm_b->SetDuty(0);
             }
             else if (duty < 0)
             {
-                config.dir1->SetLow();
-                config.dir2->SetHigh();
-                config.pwm->SetDuty(static_cast<uint16_t>(-duty));
+                config.pwm_a->SetDuty(0);
+                config.pwm_b->SetDuty(static_cast<uint16_t>(-duty));
             }
             else
             {
-                config.dir1->SetLow();
-                config.dir2->SetLow();
-                config.pwm->SetDuty(0);
+                config.pwm_a->SetDuty(0);
+                config.pwm_b->SetDuty(0);
             }
 
             data.duty = duty;
@@ -330,7 +326,6 @@ namespace BSP::Motor::_310
          */
         void UpdateStatus(uint8_t index)
         {
-            const MotorConfig &config = configs_[index];
             auto &data = this->unit_data_[index];
 
             if (!data.enabled)
@@ -388,6 +383,17 @@ namespace BSP::Motor::_310
         static constexpr float kDegToRad = 0.0174532925f;
 
         const MotorConfig (&configs_)[N];
+    };
+
+
+    template <uint8_t N>
+    class Motor310 : public Motor310Base<N>
+    {
+    public:
+        explicit Motor310(const MotorConfig (&configs)[N])
+            : Motor310Base<N>(configs)
+        {
+        }
     };
 }
 

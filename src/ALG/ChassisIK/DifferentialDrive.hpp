@@ -5,6 +5,8 @@
 
 namespace ALG::ChassisIK
 {
+    // 差速底盘逆运动学。
+    // 将底盘的前进速度 vx 和旋转速度 vw 解算成左右两侧轮子的目标角速度。
     class Diff_IK : public InverseKinematicsBase
     {
     public:
@@ -12,12 +14,19 @@ namespace ALG::ChassisIK
             : InverseKinematicsBase(config)
         {}
 
+        // 设置底盘目标速度并立即完成一次逆解。
+        // vx: 前进线速度，单位 m/s。
+        // vw: 旋转角速度，单位 rad/s。
         void DiffInvKinematics(float vx, float vw)
         {
             SetSignal_xw(vx, vw);
             InvKinematics();
         }
 
+        // 差速底盘公式:
+        // left_wheel = (vx - vw * half_track) / wheel_radius
+        // right_wheel = (vx + vw * half_track) / wheel_radius
+        // 输出单位为 rad/s。
         void InvKinematics()
         {
             if (config_.wheel_radius == 0.0f)
