@@ -69,7 +69,7 @@ namespace ALG::ChassisIK
 
     protected:
         // 保存 4 个轮子的目标角速度，单位 rad/s。
-        // 参数顺序: 左前、右前、左后、右后。
+        // 参数顺序: 左前、左后、右前、右后。
         void Set_w0w1w2w3(float w0, float w1, float w2, float w3)
         {
             Motor_wheel[0] = w0;

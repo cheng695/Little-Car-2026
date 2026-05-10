@@ -35,8 +35,8 @@ namespace ALG::ChassisIK
                 return;
             }
 
-            const float left_wheel = (Signal_x - Signal_w * config_.half_track) / config_.wheel_radius;
-            const float right_wheel = (Signal_x + Signal_w * config_.half_track) / config_.wheel_radius;
+            const float left_wheel = (Signal_x + Signal_w * config_.half_track) / config_.wheel_radius;
+            const float right_wheel = (-Signal_x + Signal_w * config_.half_track) / config_.wheel_radius;
 
             Set_w0w1w2w3(left_wheel, right_wheel, left_wheel, right_wheel);
         }

@@ -90,6 +90,27 @@ namespace RobotMessages
         return ChassisOutputBus::Instance().Subscribe(subscriber);
     }
 
+    struct ChassisIKMsg
+    {
+        struct MotorsItem
+        {
+            float target = {};
+        };
+        MotorsItem motors[4] = {};
+    };
+
+    using ChassisIKMsgBus = MID::MessageBus::MessageBus<ChassisIKMsg>;
+
+    inline void PublishChassisIKMsg(const ChassisIKMsg &msg)
+    {
+        ChassisIKMsgBus::Instance().Publish(msg);
+    }
+
+    inline bool SubscribeChassisIKMsg(ChassisIKMsgBus::Subscriber subscriber)
+    {
+        return ChassisIKMsgBus::Instance().Subscribe(subscriber);
+    }
+
 }
 
 #endif // !ROBOT_MESSAGES_HPP

@@ -29,7 +29,7 @@ void motor_control_logic()
 {
     auto &motors = ChassisMotors();
 
-    for (uint8_t i = 0; i < RobotConfig::kMotorCount; ++i)
+    for (uint8_t i = 0; i < RobotConfig::kMotorCount; i++)
     {
         const uint8_t motor_id = i + 1u;
         const int16_t duty = std::clamp(motor_output.motors[i].out, -1000.0f, 1000.0f);

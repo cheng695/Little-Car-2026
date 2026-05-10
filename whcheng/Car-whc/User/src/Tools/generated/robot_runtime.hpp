@@ -4,15 +4,98 @@
 #define ROBOT_RUNTIME_HPP
 
 #include "pid.hpp"
+#include "filter.hpp"
 #include "DifferentialDrive.hpp"
 #include "tim.h"
 #include "drv_pwm.hpp"
 #include "encoder.hpp"
 #include "310Motor.hpp"
+#include "drv_gpio.hpp"
+#include "button.hpp"
+#include "led.hpp"
+#include "buzzer.hpp"
+#include "oled.hpp"
+#include "drv_uart.hpp"
+#include "usart.h"
+#include "i2c.h"
 #include "robot_config.hpp"
+
+void Debug_OnUartRx(DRV::UART::UartId id, const DRV::UART::UartData &data);
 
 namespace RobotRuntime
 {
+    inline DRV::GPIO::HalGpio (&ButtonPins())[3]
+    {
+        static DRV::GPIO::HalGpio pins[3] =
+        {
+            DRV::GPIO::HalGpio(GPIOG, GPIO_PIN_3),
+            DRV::GPIO::HalGpio(GPIOG, GPIO_PIN_4),
+            DRV::GPIO::HalGpio(GPIOG, GPIO_PIN_5),
+        };
+
+        return pins;
+    }
+
+    inline BSP::BUTTON::Button (&Buttons())[3]
+    {
+        static BSP::BUTTON::Button buttons[3] =
+        {
+            BSP::BUTTON::Button(ButtonPins()[0], true),
+            BSP::BUTTON::Button(ButtonPins()[1], true),
+            BSP::BUTTON::Button(ButtonPins()[2], true),
+        };
+
+        return buttons;
+    }
+
+    inline DRV::GPIO::HalGpio (&LedPins())[6]
+    {
+        static DRV::GPIO::HalGpio pins[6] =
+        {
+            DRV::GPIO::HalGpio(GPIOG, GPIO_PIN_1),
+            DRV::GPIO::HalGpio(GPIOE, GPIO_PIN_7),
+            DRV::GPIO::HalGpio(GPIOG, GPIO_PIN_2),
+            DRV::GPIO::HalGpio(GPIOE, GPIO_PIN_2),
+            DRV::GPIO::HalGpio(GPIOE, GPIO_PIN_3),
+            DRV::GPIO::HalGpio(GPIOE, GPIO_PIN_4),
+        };
+
+        return pins;
+    }
+
+    inline BSP::LED::Led (&Leds())[6]
+    {
+        static BSP::LED::Led leds[6] =
+        {
+            BSP::LED::Led(LedPins()[0], false),
+            BSP::LED::Led(LedPins()[1], false),
+            BSP::LED::Led(LedPins()[2], false),
+            BSP::LED::Led(LedPins()[3], false),
+            BSP::LED::Led(LedPins()[4], false),
+            BSP::LED::Led(LedPins()[5], false),
+        };
+
+        return leds;
+    }
+
+    inline DRV::GPIO::HalGpio &BuzzerPin()
+    {
+        static DRV::GPIO::HalGpio pin(GPIOG, GPIO_PIN_12);
+        return pin;
+    }
+
+    inline BSP::Buzzer::Buzzer &Buzzer()
+    {
+        static BSP::Buzzer::Buzzer buzzer(BuzzerPin(), false);
+        return buzzer;
+    }
+
+    inline BSP::OLED::Oled &Oled()
+    {
+        static BSP::OLED::Oled oled(hi2c1, RobotConfig::kOled.address);
+        return oled;
+    }
+
     inline ALG::PID::PID (&ChassisSpeedPids())[4]
     {
         static ALG::PID::PID pids[4] =
@@ -26,6 +109,28 @@ namespace RobotRuntime
         return pids;
     }
 
+    inline ALG::Filter::LowPassFilter (&ChassisTargetLowPassFilters())[2]
+    {
+        static ALG::Filter::LowPassFilter filters[2] =
+        {
+            ALG::Filter::LowPassFilter(RobotConfig::kFilterChassisTargetLowPass),
+            ALG::Filter::LowPassFilter(RobotConfig::kFilterChassisRotationLowPass),
+        };
+
+        return filters;
+    }
+
+    inline ALG::Filter::TDFilter (&ChassisTargetTrackingTdFilters())[2]
+    {
+        static ALG::Filter::TDFilter filters[2] =
+        {
+            ALG::Filter::TDFilter(RobotConfig::kFilterChassisTargetForwardTd),
+            ALG::Filter::TDFilter(RobotConfig::kFilterChassisTargetRotationTd),
+        };
+
+        return filters;
+    }
+
     inline ALG::ChassisIK::Diff_IK &ChassisIK()
     {
         static ALG::ChassisIK::Diff_IK ik(RobotConfig::kChassisIKConfig);
@@ -36,10 +141,10 @@ namespace RobotRuntime
     {
         static BSP::ENCODER::HALEncoder encoders[4] =
         {
-            BSP::ENCODER::HALEncoder(&htim3),
+            BSP::ENCODER::HALEncoder(&htim4),
             BSP::ENCODER::HALEncoder(&htim5),
             BSP::ENCODER::HALEncoder(&htim2),
-            BSP::ENCODER::HALEncoder(&htim4),
+            BSP::ENCODER::HALEncoder(&htim3),
         };
 
         return encoders;
@@ -78,10 +183,10 @@ namespace RobotRuntime
     {
         static DRV::PWM::HalPwmChannel pwms[4] =
         {
-            DRV::PWM::HalPwmChannel(&htim1, TIM_CHANNEL_3),
-            DRV::PWM::HalPwmChannel(&htim8, TIM_CHANNEL_1),
-            DRV::PWM::HalPwmChannel(&htim1, TIM_CHANNEL_1),
-            DRV::PWM::HalPwmChannel(&htim8, TIM_CHANNEL_3),
+            DRV::PWM::HalPwmChannel(&htim8, TIM_CHANNEL_2),
+            DRV::PWM::HalPwmChannel(&htim1, TIM_CHANNEL_2),
+            DRV::PWM::HalPwmChannel(&htim8, TIM_CHANNEL_4),
+            DRV::PWM::HalPwmChannel(&htim1, TIM_CHANNEL_4),
         };
 
         return pwms;
@@ -91,13 +196,62 @@ namespace RobotRuntime
     {
         static DRV::PWM::HalPwmChannel pwms[4] =
         {
-            DRV::PWM::HalPwmChannel(&htim1, TIM_CHANNEL_4),
-            DRV::PWM::HalPwmChannel(&htim8, TIM_CHANNEL_2),
-            DRV::PWM::HalPwmChannel(&htim1, TIM_CHANNEL_2),
-            DRV::PWM::HalPwmChannel(&htim8, TIM_CHANNEL_4),
+            DRV::PWM::HalPwmChannel(&htim8, TIM_CHANNEL_1),
+            DRV::PWM::HalPwmChannel(&htim1, TIM_CHANNEL_1),
+            DRV::PWM::HalPwmChannel(&htim8, TIM_CHANNEL_3),
+            DRV::PWM::HalPwmChannel(&htim1, TIM_CHANNEL_3),
         };
 
         return pwms;
+    }
+
+    inline bool UartTx(DRV::UART::UartId id, const uint8_t *data, uint16_t len)
+    {
+        switch (id)
+        {
+            case DRV::UART::UartId::Debug:
+                return HAL_UART_Transmit_DMA(&huart1, data, len) == HAL_OK;
+            default:
+                return false;
+        }
+    }
+
+    inline bool UartRx(DRV::UART::UartId id, uint8_t *buffer, uint16_t len)
+    {
+        switch (id)
+        {
+            case DRV::UART::UartId::Debug:
+                return HAL_UARTEx_ReceiveToIdle_DMA(&huart1, buffer, len) == HAL_OK;
+            default:
+                return false;
+        }
+    }
+
+    inline uint8_t (&DebugRxBuffer())[44]
+    {
+        static uint8_t buffer[44] = {};
+        return buffer;
+    }
+
+    inline void InitUarts()
+    {
+        auto &uart = DRV::UART::UartManager::Instance();
+        uart.Init();
+        uart.RegisterTxFunction(UartTx);
+        uart.RegisterRxFunction(UartRx);
+        uart.RegisterRxCallback(DRV::UART::UartId::Debug, Debug_OnUartRx);
+        uart.Receive(DRV::UART::UartId::Debug, DebugRxBuffer(), sizeof(DebugRxBuffer()));
+    }
+
+    inline void OnUartRxEvent(UART_HandleTypeDef *huart, uint16_t size)
+    {
+        auto &manager = DRV::UART::UartManager::Instance();
+        if (huart == &huart1)
+        {
+            manager.Callback(DRV::UART::UartId::Debug, DebugRxBuffer(), size);
+            manager.Receive(DRV::UART::UartId::Debug, DebugRxBuffer(), sizeof(DebugRxBuffer()));
+            return;
+        }
     }
 
     inline BSP::Motor::_310::MotorConfig (&ChassisMotorConfigs())[4]
